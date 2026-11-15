@@ -14,7 +14,7 @@ Each module has its own manual in [`docs/`](docs/) with the concept, the operati
 ## Morel
 
 <p align="center">
-  <img src="docs/images/Morel.png" alt="Morel module panel" width="435">
+  <img src="docs/images/Morel-panel.png" alt="Morel module panel" width="435">
 </p>
 
 A slice sampler after Bioy Casares' novel *The Invention of Morel*. It records a moment of stereo audio, cuts it into slices by level and plays them from an 8-step sequencer, as hits (CUT) or as a granular texture (GRAIN). Recording modes include RETRO, which keeps the last bars after they have happened. Recordings are saved with the patch, and WAV files can be loaded.

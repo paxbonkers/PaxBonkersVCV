@@ -1,7 +1,7 @@
 # Morel
 
 <p align="center">
-  <img src="images/Morel.png" alt="Morel module panel" width="435">
+  <img src="images/Morel-panel.png" alt="Morel module panel" width="435">
 </p>
 
 *A machine that makes a past moment habitable.* 24 HP, stereo, monophonic in the Rack sense. Part of the [PaxBonkers](../README.md) plugin by pax.bonkers.
@@ -30,16 +30,20 @@ Morel is a slice sampler in the wider family of the Make Noise Morphagene, with 
 4. The display shows the new waveform with slice markers. Turn SENS to get more or fewer slices.
 5. Turn the step knobs 1–8 to choose which slice each step plays. Press RND for a random pattern.
 6. Press GRAIN to turn the current slice into a texture, and turn SPAN and SCATTER.
+7. Press REV to play the slices backwards.
+8. To follow an external clock, patch it into CLOCK and its run output into RUN. See [Context menu](#context-menu) for the RUN input mode.
 
 ## Operation
+
+The panel is read from top to bottom. Below the display sit the transport (CLOCK, RESET, RUN, ADV, TRIG, TEMPO) and the sequence controls (LEN, DIR, RND), with their inputs below the buttons. The eight step knobs follow. The lower half is split into RECORD (REC, SENS, MODE) and PLAY (SPEED, SPAN, SCATTER, GRAIN, REV). The bottom row holds the audio inputs on the left, the trigger and CV outputs in the middle and the audio outputs on the right.
 
 ### Transport
 
 | Control / port | Range | Function |
 |---|---|---|
 | TEMPO | 40–800 steps/min, default 480 (120 BPM in sixteenths). With CLOCK patched: /4, /2, ×1, ×2, ×4 | Internal clock, or divider/multiplier of the external clock |
-| RUN button / input | on/off | Starts and stops the sequencer. The input toggles RUN with every trigger (default) or follows a gate, see below |
-| ADV button / input | button, trigger | One step forward, also while stopped. The input can be limited to running, see the context menu |
+| RUN button / input | on/off | Starts and stops the sequencer. The input toggles RUN with every trigger (default) or follows a gate, see [Context menu](#context-menu) |
+| ADV button / input | button, trigger | One step forward, also while stopped. The input can be limited to running, see [Context menu](#context-menu) |
 | TRIG button / input | button, trigger | Plays the current step again without advancing |
 | CLOCK | trigger | Replaces the internal clock. Pulses count only while RUN is on |
 | RESET | trigger | The next step is the first step of the cycle. The clock phase and divider start again |
@@ -132,15 +136,29 @@ The middle shows the waveform with numbered slice markers, the current slice, th
 
 The bottom line shows the step, the slice, the recording time and the tempo or clock factor.
 
-### Context menu settings for transport
+### Context menu
+
+| Entry | Choices | Default |
+|---|---|---|
+| Direction | FWD, REV, PEND, SHUF | FWD |
+| Recording mode | MAN, CLK, LVL, RETRO | MAN |
+| RUN input | Trigger (toggles), Gate (high = run) | Trigger |
+| ADV input | Always, Only while running | Always |
+| GRAIN when stopped | Keep sounding, Fade out | Keep sounding |
+| Bars (CLK, RETRO) | 1, 2, 4, 8 | 2 |
+| Load WAV… | file dialog | |
+
+Direction and Recording mode are the same settings as the DIR and MODE buttons.
 
 RUN input sets how the RUN jack reacts. Trigger (toggles) switches RUN on or off with every pulse and suits clocks that send a pulse at start and at stop. Gate (high = run) follows the level and suits clocks whose run output stays high while they run. The RUN button works in both modes.
+
+Clocks that send a short pulse at start and at stop (for example BPM Clock by Alfredo Santamaria) need Trigger mode. In this mode the clock and the module each flip their state with every pulse, so they must start out in the same state: stop the clock, switch the module off with its RUN button, and from then on start and stop only the clock. If the clock runs right after a patch is loaded without sending a start pulse, do this once.
 
 ADV input: Always (default) lets every trigger at the ADV jack advance a step, also while the sequencer is stopped. Only while running ignores the jack while RUN is off, so a free-running source at ADV cannot keep Morel moving after the clock stops. The ADV button always works.
 
 GRAIN when stopped: Keep sounding (default) lets the texture continue while RUN is off. Fade out silences the grain output within 20 ms when RUN goes off and brings it back when RUN goes on again. In this mode GRAIN is also silent while you step through a stopped sequence by hand; CUT hits still sound.
 
-All three settings are saved with the patch.
+RUN input, ADV input, GRAIN when stopped and Bars are saved with the patch. Initialize sets them back to their defaults.
 
 ### Files and patches
 
@@ -169,7 +187,7 @@ The playing material is saved with the patch as `recording.wav` in the module's 
 | Patch data | Bars, RUN input mode, ADV input mode, GRAIN when stopped, recording counter and source name. Missing or invalid values fall back to 2 bars, trigger mode, ADV always, GRAIN keeps sounding, counter 0, no name |
 | Not saved | Sequencer position and divider count (Morel starts at the first step after loading), the RETRO ring buffer, a finished recording that is still waiting for EOC |
 | Real-time safety | Slicing, file reading and writing and the RETRO copy run outside the audio thread. The audio thread does no memory allocation or file I/O |
-| Initialize | All parameters to default, 2 bars, sequencer to the first step, recording cleared, counter to 0 |
+| Initialize | All parameters and context menu settings to default, sequencer to the first step, recording cleared, counter to 0 |
 | Bypass | All outputs silent |
 
 The DIR and MODE orders are stored in patches and will not change.
@@ -181,3 +199,4 @@ The DIR and MODE orders are stored in patches and will not change.
 - GRAIN with slow modulation on SPAN and SCATTER: a pad from a single spoken word.
 - SLICE into a filter cutoff: each slice gets its own colour.
 - ENV into a VCA on another voice: the slices drive the dynamics of the rest of the patch.
+- Stop means silence: set ADV input to Only while running and GRAIN when stopped to Fade out. When the clock stops, Morel stops moving and the texture fades out.
