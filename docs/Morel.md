@@ -39,7 +39,7 @@ Morel is a slice sampler in the wider family of the Make Noise Morphagene, with 
 |---|---|---|
 | TEMPO | 40–800 steps/min, default 480 (120 BPM in sixteenths). With CLOCK patched: /4, /2, ×1, ×2, ×4 | Internal clock, or divider/multiplier of the external clock |
 | RUN button / input | on/off | Starts and stops the sequencer. The input toggles RUN with every trigger (default) or follows a gate, see below |
-| ADV button / input | button, trigger | One step forward, also while stopped |
+| ADV button / input | button, trigger | One step forward, also while stopped. The input can be limited to running, see the context menu |
 | TRIG button / input | button, trigger | Plays the current step again without advancing |
 | CLOCK | trigger | Replaces the internal clock. Pulses count only while RUN is on |
 | RESET | trigger | The next step is the first step of the cycle. The clock phase and divider start again |
@@ -107,7 +107,7 @@ The new recording takes over at the next EOC or RESET, or at once when the seque
 
 In CUT mode every step starts its slice and plays the first SPAN × slice length, followed by silence until the next step. If a step arrives while the previous slice is still sounding, Morel crossfades in 3 ms. SCATTER moves the start up to 20 ms later, changes the pitch by up to ±1 semitone and lowers the level by up to 6 dB, chosen anew on every step.
 
-In GRAIN mode four overlapping grains play from the current slice. SPAN sets the grain size from 10 ms to the whole slice. A read head moves slowly through the slice and wraps at its end. SCATTER shifts each grain's position by up to half the slice length and its pitch by up to ±7 semitones. On a new step, new grains start in the new slice while the old ones fade out. The texture keeps sounding while the sequencer is stopped.
+In GRAIN mode four overlapping grains play from the current slice. SPAN sets the grain size from 10 ms to the whole slice. A read head moves slowly through the slice and wraps at its end. SCATTER shifts each grain's position by up to half the slice length and its pitch by up to ±7 semitones. On a new step, new grains start in the new slice while the old ones fade out. By default the texture keeps sounding while the sequencer is stopped (see GRAIN when stopped).
 
 With REV on, CUT plays the same part of the slice backwards, from the SPAN cut down to the slice start, so the attack of a hit comes at the end. In GRAIN mode the read head moves backwards through the slice, from its end to its start, and each new grain reads its section backwards. EOS fires when the read head wraps from the start back to the end. SCATTER's start offset moves the reverse start point towards the slice start.
 
@@ -132,9 +132,15 @@ The middle shows the waveform with numbered slice markers, the current slice, th
 
 The bottom line shows the step, the slice, the recording time and the tempo or clock factor.
 
-### RUN input
+### Context menu settings for transport
 
-The context menu entry RUN input sets how the RUN jack reacts. Trigger (toggles) switches RUN on or off with every pulse and suits clocks that send a pulse at start and at stop. Gate (high = run) follows the level and suits clocks whose run output stays high while they run. The RUN button works in both modes. The setting is saved with the patch.
+RUN input sets how the RUN jack reacts. Trigger (toggles) switches RUN on or off with every pulse and suits clocks that send a pulse at start and at stop. Gate (high = run) follows the level and suits clocks whose run output stays high while they run. The RUN button works in both modes.
+
+ADV input: Always (default) lets every trigger at the ADV jack advance a step, also while the sequencer is stopped. Only while running ignores the jack while RUN is off, so a free-running source at ADV cannot keep Morel moving after the clock stops. The ADV button always works.
+
+GRAIN when stopped: Keep sounding (default) lets the texture continue while RUN is off. Fade out silences the grain output within 20 ms when RUN goes off and brings it back when RUN goes on again. In this mode GRAIN is also silent while you step through a stopped sequence by hand; CUT hits still sound.
+
+All three settings are saved with the patch.
 
 ### Files and patches
 
@@ -160,7 +166,7 @@ The playing material is saved with the patch as `recording.wav` in the module's 
 | Sample rate | Recordings and files keep their own sample rate and play at the right pitch at any engine rate. Changing the engine rate keeps the material |
 | WAV files | Read: PCM 8, 16, 24 and 32 bit, float 32 and 64 bit, WAVE_FORMAT_EXTENSIBLE, any sample rate, mono (on both sides) or two and more channels (the first two are used). Full scale = 5 V. Longer files are cut at 2 880 000 frames |
 | Saved file | `recording.wav`, 32-bit float stereo, own sample rate, 5 V = 1.0. Removed when Morel is empty at save time |
-| Patch data | Bars, RUN input mode, recording counter and source name. Missing or invalid values fall back to 2 bars, trigger mode, counter 0, no name |
+| Patch data | Bars, RUN input mode, ADV input mode, GRAIN when stopped, recording counter and source name. Missing or invalid values fall back to 2 bars, trigger mode, ADV always, GRAIN keeps sounding, counter 0, no name |
 | Not saved | Sequencer position and divider count (Morel starts at the first step after loading), the RETRO ring buffer, a finished recording that is still waiting for EOC |
 | Real-time safety | Slicing, file reading and writing and the RETRO copy run outside the audio thread. The audio thread does no memory allocation or file I/O |
 | Initialize | All parameters to default, 2 bars, sequencer to the first step, recording cleared, counter to 0 |

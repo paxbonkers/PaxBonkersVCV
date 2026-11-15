@@ -167,6 +167,9 @@ struct Morel : Module {
 	float recBlink = 0.f;
 	bool runInputGate = false;   // context menu "RUN input", saved in the patch JSON
 	bool runInWasHigh = false;
+	bool grainStopFade = false;  // context menu "GRAIN when stopped": fade out instead of keep sounding
+	bool advInRunOnly = false;   // context menu "ADV input": only while running (the ADV button always works)
+	float grainGain = 1.f;       // ramp for "GRAIN when stopped: fade out"
 	std::atomic<float> playheadFrac{-1.f};
 	float engineRate = 48000.f;
 
@@ -274,6 +277,8 @@ struct Morel : Module {
 		recLogic.reset();
 		bars = 2;
 		runInputGate = false;
+		grainStopFade = false;
+		advInRunOnly = false;
 		loadError[0] = 0;
 		// Initialize deletes the recording (signal contract).
 		for (int b = 0; b < 2; b++) {
@@ -294,6 +299,8 @@ struct Morel : Module {
 		json_t* root = json_object();
 		json_object_set_new(root, "bars", json_integer(bars));
 		json_object_set_new(root, "runInputGate", json_boolean(runInputGate));
+		json_object_set_new(root, "grainStopFade", json_boolean(grainStopFade));
+		json_object_set_new(root, "advInRunOnly", json_boolean(advInRunOnly));
 		json_object_set_new(root, "recCounter", json_integer(recCounter));
 		const MorelBuffer& b = bufs[activeBuf.load()];
 		json_object_set_new(root, "name", json_string(b.length > 0 ? b.name : ""));
@@ -310,6 +317,10 @@ struct Morel : Module {
 		}
 		j = json_object_get(root, "runInputGate");
 		runInputGate = j && json_is_boolean(j) && json_is_true(j);
+		j = json_object_get(root, "grainStopFade");
+		grainStopFade = j && json_is_boolean(j) && json_is_true(j);
+		j = json_object_get(root, "advInRunOnly");
+		advInRunOnly = j && json_is_boolean(j) && json_is_true(j);
 		j = json_object_get(root, "recCounter");
 		if (j && json_is_integer(j))
 			recCounter = std::max(0, (int) json_integer_value(j));
@@ -681,7 +692,9 @@ struct Morel : Module {
 		int dir = (int) std::lround(params[DIR_PARAM].getValue());
 		bool clockEdge = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 1.f);
 		bool advEdge = advButton.process(params[ADV_PARAM].getValue() > 0.5f);
-		advEdge |= advInTrigger.process(inputs[ADV_INPUT].getVoltage(), 0.1f, 1.f);
+		bool advIn = advInTrigger.process(inputs[ADV_INPUT].getVoltage(), 0.1f, 1.f);
+		if (advIn && (running || !advInRunOnly))
+			advEdge = true;
 		float spm = morel::stepsPerMinute(params[TEMPO_PARAM].getValue(), 0.f);
 		int factor = morel::clockFactorIndex(params[TEMPO_PARAM].getValue(), 0.f);
 		bool tick = transport.process(inputs[CLOCK_INPUT].isConnected(), clockEdge, advEdge, spm, dt, factor);
@@ -778,8 +791,12 @@ struct Morel : Module {
 		eos |= grains.process(span, scatter, speedMul, engineRate, gL, gR, params[REV_PARAM].getValue() > 0.5f);
 		if (eos)
 			eosPulse.trigger(1e-3f);
-		outL += gL;
-		outR += gR;
+		// GRAIN when stopped: "fade out" ramps the grain output to silence in 20 ms (and back when running).
+		float grainTarget = (grainStopFade && !running) ? 0.f : 1.f;
+		float grainStep = dt / 0.02f;
+		grainGain = grainGain < grainTarget ? std::min(grainTarget, grainGain + grainStep) : std::max(grainTarget, grainGain - grainStep);
+		outL += gL * grainGain;
+		outR += gR * grainGain;
 		outputs[OUT_L_OUTPUT].setVoltage(outL);
 		outputs[OUT_R_OUTPUT].setVoltage(outR);
 
@@ -1176,6 +1193,12 @@ struct MorelWidget : ModuleWidget {
 		menu->addChild(createIndexSubmenuItem("RUN input", {"Trigger (toggles)", "Gate (high = run)"},
 			[=]() { return (size_t) (module->runInputGate ? 1 : 0); },
 			[=](size_t i) { module->runInputGate = (i == 1); }));
+		menu->addChild(createIndexSubmenuItem("ADV input", {"Always", "Only while running"},
+			[=]() { return (size_t) (module->advInRunOnly ? 1 : 0); },
+			[=](size_t i) { module->advInRunOnly = (i == 1); }));
+		menu->addChild(createIndexSubmenuItem("GRAIN when stopped", {"Keep sounding", "Fade out"},
+			[=]() { return (size_t) (module->grainStopFade ? 1 : 0); },
+			[=](size_t i) { module->grainStopFade = (i == 1); }));
 		menu->addChild(createIndexSubmenuItem("Bars (CLK, RETRO)", {"1", "2", "4", "8"},
 			[=]() {
 				for (size_t i = 0; i < 4; i++)
