@@ -33,13 +33,15 @@ Zenon is a percussion synthesizer with a built-in step sequencer, in the traditi
 |---|---|
 | TEMPO | Internal clock, 40–800 steps/min, default 480 (120 BPM in sixteenths). With CLOCK patched the knob becomes a divider/multiplier: /4, /2, ×1, ×2, ×4. Its travel is split into five equal zones with ×1 in the middle |
 | TEMPO CV | Internal clock: 1 V doubles the tempo. External clock: 1 V moves one factor step, limited to /4 … ×4 |
-| RUN button / input | Starts and stops the sequencer. A trigger at the input toggles RUN. With the internal clock the first step sounds at once, with an external clock on the next pulse |
+| RUN button / input | Starts and stops the sequencer. By default a trigger at the input toggles RUN; in the context menu the input can follow a gate instead (high = run). With the internal clock the first step sounds at once, with an external clock on the next pulse |
 | ADV | One step forward, also while stopped |
 | CLOCK | External clock. Replaces the internal clock. Pulses count only while RUN is on |
 | TRIG button / input | Plays the current step again without advancing |
 | RESET | Both tracks start at step 1 with the next step. The internal clock restarts its phase and the divider starts counting again |
 
 Every step, whether from the internal clock, an external clock or ADV, advances both tracks and triggers the voice.
+
+The context menu entry RUN input chooses between Trigger (toggles), for clocks that send a pulse at start and at stop, and Gate (high = run), for clocks whose run output stays high while they run. The setting is saved with the patch.
 
 ### Tracks A and B
 
@@ -126,7 +128,7 @@ All three envelopes restart on every hit with a 0.5 ms attack from their current
 | Clock multiplier | Extra steps are spread evenly, based on the time between the last two clock pulses. Before the second pulse only the pulses themselves count. A gap longer than 4 periods counts as a restart and keeps the old period |
 | Clock divider | Every Nth pulse is a step, counted from the first pulse after start or reset |
 | Sample rate | All times and filter coefficients follow the current sample rate. Tested at 44.1, 48, 96 and 192 kHz |
-| Saved with the patch | All knobs, switches, step values and RUN. Track positions and the divider count are not saved; both tracks start at step 1 after loading |
+| Saved with the patch | All knobs, switches, step values, RUN and the RUN input mode. Track positions and the divider count are not saved; both tracks start at step 1 after loading |
 | Initialize | All parameters to default, sequencer to step 1, envelopes to 0 |
 | Bypass | All outputs silent |
 

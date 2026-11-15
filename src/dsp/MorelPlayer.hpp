@@ -3,6 +3,7 @@
 
 // CUT playback of Morel: plays the front part (SPAN) of a slice once, with short fades, and
 // crossfades when a new step arrives while the previous slice still sounds.
+// Reverse: the same part of the slice is played backwards (from its end to its start).
 // Rack-independent, unit-tested in tests/test_morel_player.cpp. See docs/modules/Morel-Signalvertrag.md.
 // Real-time safe: no allocation, no I/O.
 
@@ -46,7 +47,9 @@ struct CutVoice {
 	bool killing = false;
 	SampleRef s;
 	double pos = 0.0;
-	double end = 0.0;
+	double end = 0.0;         // forward: stop position
+	double lo = 0.0;          // reverse: stop position (start of the part)
+	bool reverse = false;
 	float pitchRatio = 1.f;   // recording rate / engine rate * scatter pitch
 	float level = 1.f;
 	float fadeIn = 0.f;
@@ -69,7 +72,8 @@ struct CutPlayer {
 	}
 
 	// Starts [start, end) of the sample. semis: pitch offset of this hit, level: gain of this hit.
-	void trigger(const SampleRef& s, double start, double end, float semis, float level, float engineRate) {
+	// reverse: plays [start, end) backwards, beginning at end.
+	void trigger(const SampleRef& s, double start, double end, float semis, float level, float engineRate, bool reverse = false) {
 		CutVoice& old = voices[cur];
 		if (old.active)
 			old.killing = true;
@@ -86,8 +90,10 @@ struct CutPlayer {
 			return;
 		v.active = true;
 		v.s = s;
-		v.pos = start;
+		v.reverse = reverse;
+		v.pos = reverse ? end - 1.0 : start;
 		v.end = end;
+		v.lo = start;
 		v.pitchRatio = s.sampleRate / engineRate * std::pow(2.f, semis / 12.f);
 		v.level = level;
 	}
@@ -117,7 +123,7 @@ struct CutPlayer {
 				v.active = false;
 				continue;
 			}
-			float remaining = (float) ((v.end - v.pos) / rate);   // in output samples
+			float remaining = (float) ((v.reverse ? v.pos - v.lo : v.end - v.pos) / rate);   // in output samples
 			float g = v.level * v.fadeIn * v.kill * std::fmin(1.f, remaining / fadeOutSamples);
 			if (g < 0.f)
 				g = 0.f;
@@ -129,8 +135,8 @@ struct CutPlayer {
 				if (v.kill <= 0.f)
 					v.active = false;
 			}
-			v.pos += rate;
-			if (v.pos >= v.end) {
+			v.pos += v.reverse ? -rate : rate;
+			if (v.reverse ? v.pos < v.lo : v.pos >= v.end) {
 				if (!v.killing && i == cur)
 					eos = true;
 				v.active = false;

@@ -5,6 +5,8 @@
 
 // GRAIN playback of Morel: overlapping Hann-windowed grains read from the current slice.
 // A read head scans slowly through the slice; SPAN sets the grain size, SCATTER spreads position and pitch.
+// Reverse: the read head moves backwards through the slice (from its end to its start) and each new
+// grain reads its section backwards, so the whole texture is reversed.
 // Rack-independent, unit-tested in tests/test_morel_grain.cpp. See docs/modules/Morel-Signalvertrag.md.
 // Real-time safe: fixed number of voices, no allocation, no I/O.
 
@@ -31,7 +33,7 @@ struct Grain {
 	bool active = false;
 	SampleRef s;
 	double pos = 0.0;      // source position
-	double rate = 1.0;     // source samples per output sample (without SPEED)
+	double rate = 1.0;     // source samples per output sample (without SPEED), negative = reverse
 	float phase = 0.f;     // 0..1 through the window
 	float phaseInc = 0.f;  // per output sample at speed 1
 };
@@ -65,7 +67,8 @@ struct GrainCloud {
 	}
 
 	// New step: grains now come from [start, end). Running grains finish naturally (crossfade).
-	void setSlice(const SampleRef& src, double start, double end) {
+	// reverse: the read head starts at the end of the slice.
+	void setSlice(const SampleRef& src, double start, double end, bool reverse = false) {
 		if (!src.left || src.length <= 1 || end - start < 2.0 || start < 0.0 || end > src.length) {
 			hasSlice = false;
 			return;
@@ -74,7 +77,7 @@ struct GrainCloud {
 		sliceStart = start;
 		sliceLen = end - start;
 		hasSlice = true;
-		scan = 0.0;
+		scan = reverse ? std::nextafter(sliceLen, 0.0) : 0.0;
 		untilNext = 0.0;   // first grain starts immediately
 	}
 
@@ -85,9 +88,9 @@ struct GrainCloud {
 		return (float) ((sliceStart + scan) / s.length);
 	}
 
-	// span, scatter: 0..1; speedMul: 2^octaves from SPEED and V/OCT.
-	// Returns true when the read head wraps to the slice start (EOS in GRAIN mode).
-	bool process(float span, float scatter, float speedMul, float engineRate, float& outL, float& outR) {
+	// span, scatter: 0..1; speedMul: 2^octaves from SPEED and V/OCT; reverse: new grains read backwards.
+	// Returns true when the read head wraps around the slice (EOS in GRAIN mode).
+	bool process(float span, float scatter, float speedMul, float engineRate, float& outL, float& outR, bool reverse = false) {
 		outL = outR = 0.f;
 		bool eos = false;
 		if (!(engineRate > 0.f) || !(speedMul > 0.f) || !std::isfinite(speedMul))
@@ -103,7 +106,9 @@ struct GrainCloud {
 				float semis = (rng.uniform() * 2.f - 1.f) * GRAIN_SCATTER_SEMIS * scatter;
 				double rate = (double) s.sampleRate / engineRate * std::pow(2.f, semis / 12.f);
 				double offset = (rng.uniform() * 2.f - 1.f) * 0.5 * sliceLen * scatter;
-				double rel = scan + offset;
+				// Forward the grain starts at the read head, reverse it ends there (it is read backwards).
+				// Near the slice start a reverse grain is held at the start (mirror of the clamp at the end).
+				double rel = (reverse ? std::fmax(scan - size, 0.0) : scan) + offset;
 				double maxRel = sliceLen - size;
 				if (maxRel < 0.0)
 					maxRel = 0.0;
@@ -118,10 +123,12 @@ struct GrainCloud {
 						continue;
 					g.active = true;
 					g.s = s;
-					g.pos = sliceStart + rel;
-					g.rate = rate;
+					g.pos = reverse ? sliceStart + rel + size - 1.0 : sliceStart + rel;
+					if (g.pos < sliceStart)
+						g.pos = sliceStart;
+					g.rate = reverse ? -rate : rate;
 					g.phase = 0.f;
-					g.phaseInc = (float) (rate / size);
+					g.phaseInc = (float) (rate / size);   // rate > 0 here
 					break;
 				}
 				// Duration of a grain at speed 1 in output samples, without the scatter pitch
@@ -129,10 +136,21 @@ struct GrainCloud {
 				untilNext += std::fmax(durOut * 0.5, 1.0);
 			}
 			// Read head
-			scan += GRAIN_SCAN_RATE * baseRate;
-			if (scan >= sliceLen) {
-				scan = std::fmod(scan, sliceLen);
-				eos = true;
+			if (reverse) {
+				scan -= GRAIN_SCAN_RATE * baseRate;
+				if (scan < 0.0) {
+					scan = std::fmod(scan, sliceLen) + sliceLen;
+					if (scan >= sliceLen)
+						scan = std::nextafter(sliceLen, 0.0);
+					eos = true;
+				}
+			}
+			else {
+				scan += GRAIN_SCAN_RATE * baseRate;
+				if (scan >= sliceLen) {
+					scan = std::fmod(scan, sliceLen);
+					eos = true;
+				}
 			}
 		}
 
@@ -145,7 +163,7 @@ struct GrainCloud {
 			outR += w * hermite(g.s.right, g.s.length, g.pos);
 			g.pos += g.rate * speedMul;
 			g.phase += g.phaseInc * speedMul;
-			if (g.phase >= 1.f || g.pos >= g.s.length)
+			if (g.phase >= 1.f || g.pos >= g.s.length || g.pos < 0.0)
 				g.active = false;
 		}
 		return eos;

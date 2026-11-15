@@ -71,6 +71,7 @@ struct Morel : Module {
 		GRAIN_PARAM,
 		DIR_PARAM,      // selected by DIR_BUTTON_PARAM, no own widget
 		MODE_PARAM,     // selected by MODE_BUTTON_PARAM, no own widget
+		REV_PARAM,      // appended 14.11.: global reverse playback
 		PARAMS_LEN
 	};
 	enum InputId {
@@ -87,6 +88,7 @@ struct Morel : Module {
 		VOCT_INPUT,
 		SPAN_INPUT,
 		SCATTER_INPUT,
+		ADV_INPUT,     // appended in 2.3.0 development (14.11.); keep IDs in order
 		INPUTS_LEN
 	};
 	enum OutputId {
@@ -105,6 +107,7 @@ struct Morel : Module {
 		RND_LIGHT,
 		GRAIN_LIGHT,
 		ENUMS(STEP_LIGHTS, 8),
+		REV_LIGHT,      // appended 14.11.
 		LIGHTS_LEN
 	};
 
@@ -162,10 +165,12 @@ struct Morel : Module {
 	float sliceVolts = 0.f;
 	float envState = 0.f;
 	float recBlink = 0.f;
+	bool runInputGate = false;   // context menu "RUN input", saved in the patch JSON
+	bool runInWasHigh = false;
 	std::atomic<float> playheadFrac{-1.f};
 	float engineRate = 48000.f;
 
-	dsp::SchmittTrigger runInTrigger, clockTrigger, trigInTrigger, resetTrigger, rndInTrigger, recInTrigger;
+	dsp::SchmittTrigger runInTrigger, clockTrigger, advInTrigger, trigInTrigger, resetTrigger, rndInTrigger, recInTrigger;
 	dsp::BooleanTrigger advButton, trigButton, rndButton, recButton, dirButton, modeButton;
 	dsp::PulseGenerator stepPulse, eocPulse, eosPulse, rndLightPulse;
 	dsp::ClockDivider lightDivider;
@@ -194,6 +199,7 @@ struct Morel : Module {
 		configParam(SPAN_PARAM, 0.01f, 1.f, 1.f, "Span (part of the slice that plays)", "%", 0.f, 100.f);
 		configParam(SCATTER_PARAM, 0.f, 1.f, 0.f, "Scatter", "%", 0.f, 100.f);
 		configSwitch(GRAIN_PARAM, 0.f, 1.f, 0.f, "Play mode", {"CUT", "GRAIN"});
+		configSwitch(REV_PARAM, 0.f, 1.f, 0.f, "Playback direction", {"Forward", "Reverse"});
 		std::vector<std::string> dirLabels;
 		for (int d = 0; d < morel::NUM_DIRS; d++)
 			dirLabels.push_back(morel::dirName(d));
@@ -202,7 +208,8 @@ struct Morel : Module {
 
 		configInput(CLOCK_INPUT, "Clock (replaces the internal clock)");
 		configInput(RESET_INPUT, "Reset");
-		configInput(RUN_INPUT, "Run toggle trigger");
+		configInput(RUN_INPUT, "Run (trigger toggles or gate, see context menu)");
+		configInput(ADV_INPUT, "Advance one step");
 		configInput(TRIG_INPUT, "Trigger (replay current step)");
 		configInput(RND_INPUT, "Randomize trigger");
 		configInput(LEN_INPUT, "Length CV (1 V = 1 step)");
@@ -225,6 +232,7 @@ struct Morel : Module {
 		configLight(RUN_LIGHT, "Running");
 		configLight(REC_LIGHT, "Recording");
 		configLight(GRAIN_LIGHT, "Grain mode");
+		configLight(REV_LIGHT, "Reverse playback");
 
 		lightDivider.setDivision(16);
 		scatterRng.seed((uint32_t) (random::u32() | 1u));
@@ -265,6 +273,7 @@ struct Morel : Module {
 		recArmed = false;
 		recLogic.reset();
 		bars = 2;
+		runInputGate = false;
 		loadError[0] = 0;
 		// Initialize deletes the recording (signal contract).
 		for (int b = 0; b < 2; b++) {
@@ -284,6 +293,7 @@ struct Morel : Module {
 	json_t* dataToJson() override {
 		json_t* root = json_object();
 		json_object_set_new(root, "bars", json_integer(bars));
+		json_object_set_new(root, "runInputGate", json_boolean(runInputGate));
 		json_object_set_new(root, "recCounter", json_integer(recCounter));
 		const MorelBuffer& b = bufs[activeBuf.load()];
 		json_object_set_new(root, "name", json_string(b.length > 0 ? b.name : ""));
@@ -298,6 +308,8 @@ struct Morel : Module {
 				if (c == v)
 					bars = v;
 		}
+		j = json_object_get(root, "runInputGate");
+		runInputGate = j && json_is_boolean(j) && json_is_true(j);
 		j = json_object_get(root, "recCounter");
 		if (j && json_is_integer(j))
 			recCounter = std::max(0, (int) json_integer_value(j));
@@ -603,7 +615,7 @@ struct Morel : Module {
 		s.id = activeBuf.load();
 		if (params[GRAIN_PARAM].getValue() > 0.5f) {
 			// GRAIN: the cloud moves to the new slice; a still sounding CUT voice fades out.
-			grains.setSlice(s, start, start + sliceLen);
+			grains.setSlice(s, start, start + sliceLen, params[REV_PARAM].getValue() > 0.5f);
 			player.trigger(morel::SampleRef(), 0.0, 0.0, 0.f, 0.f, engineRate);
 			return;
 		}
@@ -612,15 +624,20 @@ struct Morel : Module {
 		float span = morel::clampf(params[SPAN_PARAM].getValue() + in(SPAN_INPUT) * CV_SCALE, 0.01f, 1.f);
 		float scatter = morel::clampf(params[SCATTER_PARAM].getValue() + in(SCATTER_INPUT) * CV_SCALE, 0.f, 1.f);
 		double end = start + span * sliceLen;
+		bool rev = params[REV_PARAM].getValue() > 0.5f;
 		float semis = 0.f, level = 1.f;
 		if (scatter > 0.f) {
-			// CUT scatter: later start (up to 20 ms), pitch (up to +-1 semitone), level (down to -6 dB).
+			// CUT scatter: later start (up to 20 ms; reverse: the start is the end of the part),
+			// pitch (up to +-1 semitone), level (down to -6 dB).
 			double offset = scatterRng.uniform() * 0.02 * scatter * b.sampleRate;
-			start = std::min(start + offset, end - 1.0);
+			if (rev)
+				end = std::max(end - offset, start + 1.0);
+			else
+				start = std::min(start + offset, end - 1.0);
 			semis = (scatterRng.uniform() * 2.f - 1.f) * scatter;
 			level = std::pow(10.f, -6.f * scatter * scatterRng.uniform() / 20.f);
 		}
-		player.trigger(s, start, end, semis, level, engineRate);
+		player.trigger(s, start, end, semis, level, engineRate, rev);
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -637,8 +654,20 @@ struct Morel : Module {
 		sensTarget = morel::clampf(params[SENS_PARAM].getValue() + in(SENS_INPUT) * CV_SCALE, 0.f, 1.f);
 
 		// --- Transport
-		if (runInTrigger.process(inputs[RUN_INPUT].getVoltage(), 0.1f, 1.f))
+		// RUN input: trigger mode toggles on every rising edge; gate mode follows the level
+		// (rising edge = run, falling edge = stop). The RUN button works in both modes.
+		bool runRise = runInTrigger.process(inputs[RUN_INPUT].getVoltage(), 0.1f, 1.f);
+		bool runFall = runInWasHigh && !runInTrigger.isHigh();
+		runInWasHigh = runInTrigger.isHigh();
+		if (runInputGate) {
+			if (runRise)
+				params[RUN_PARAM].setValue(1.f);
+			if (runFall)
+				params[RUN_PARAM].setValue(0.f);
+		}
+		else if (runRise) {
 			params[RUN_PARAM].setValue(params[RUN_PARAM].getValue() > 0.5f ? 0.f : 1.f);
+		}
 		bool running = params[RUN_PARAM].getValue() > 0.5f;
 		transport.setRunning(running);
 
@@ -652,6 +681,7 @@ struct Morel : Module {
 		int dir = (int) std::lround(params[DIR_PARAM].getValue());
 		bool clockEdge = clockTrigger.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 1.f);
 		bool advEdge = advButton.process(params[ADV_PARAM].getValue() > 0.5f);
+		advEdge |= advInTrigger.process(inputs[ADV_INPUT].getVoltage(), 0.1f, 1.f);
 		float spm = morel::stepsPerMinute(params[TEMPO_PARAM].getValue(), 0.f);
 		int factor = morel::clockFactorIndex(params[TEMPO_PARAM].getValue(), 0.f);
 		bool tick = transport.process(inputs[CLOCK_INPUT].isConnected(), clockEdge, advEdge, spm, dt, factor);
@@ -745,7 +775,7 @@ struct Morel : Module {
 		float scatter = morel::clampf(params[SCATTER_PARAM].getValue() + in(SCATTER_INPUT) * CV_SCALE, 0.f, 1.f);
 		float outL, outR, gL, gR;
 		bool eos = player.process(speedMul, engineRate, outL, outR);
-		eos |= grains.process(span, scatter, speedMul, engineRate, gL, gR);
+		eos |= grains.process(span, scatter, speedMul, engineRate, gL, gR, params[REV_PARAM].getValue() > 0.5f);
 		if (eos)
 			eosPulse.trigger(1e-3f);
 		outL += gL;
@@ -774,6 +804,7 @@ struct Morel : Module {
 			lights[REC_LIGHT].setBrightness(recording ? 1.f : (recArmed ? (recBlink < 0.25f ? 1.f : 0.f) : 0.f));
 			lights[RND_LIGHT].setBrightness(rndLightPulse.process(ldt) ? 1.f : 0.f);
 			lights[GRAIN_LIGHT].setBrightness(params[GRAIN_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+			lights[REV_LIGHT].setBrightness(params[REV_PARAM].getValue() > 0.5f ? 1.f : 0.f);
 			int cur = seq.current();
 			for (int i = 0; i < morel::NUM_STEPS; i++) {
 				float br = i == cur ? 1.f : (i < len ? 0.15f : 0.f);
@@ -1080,6 +1111,7 @@ struct MorelWidget : ModuleWidget {
 		addParam(createLightParamCentered<VCVLightBezelLatch<GreenLight>>(at(L::RUN), module, Morel::RUN_PARAM, Morel::RUN_LIGHT));
 		addInput(createInputCentered<PJ301MPort>(at(L::RUN_IN), module, Morel::RUN_INPUT));
 		addParam(createParamCentered<VCVBezel>(at(L::ADV), module, Morel::ADV_PARAM));
+		addInput(createInputCentered<PJ301MPort>(at(L::ADV_IN), module, Morel::ADV_INPUT));
 		addParam(createParamCentered<VCVBezel>(at(L::TRIG), module, Morel::TRIG_PARAM));
 		addInput(createInputCentered<PJ301MPort>(at(L::TRIG_IN), module, Morel::TRIG_INPUT));
 		addParam(createParamCentered<RoundBlackKnob>(at(L::TEMPO), module, Morel::TEMPO_PARAM));
@@ -1113,6 +1145,7 @@ struct MorelWidget : ModuleWidget {
 		addParam(createParamCentered<RoundBlackKnob>(at(L::SCATTER), module, Morel::SCATTER_PARAM));
 		addInput(createInputCentered<PJ301MPort>(at(L::SCATTER_CV), module, Morel::SCATTER_INPUT));
 		addParam(createLightParamCentered<VCVLightBezelLatch<WhiteLight>>(at(L::GRAIN), module, Morel::GRAIN_PARAM, Morel::GRAIN_LIGHT));
+		addParam(createLightParamCentered<VCVLightBezelLatch<WhiteLight>>(at(L::REV), module, Morel::REV_PARAM, Morel::REV_LIGHT));
 
 		// Patch row: audio in | trigger and CV outputs | audio out
 		addInput(createInputCentered<PJ301MPort>(at(L::IN_L), module, Morel::IN_L_INPUT));
@@ -1140,6 +1173,9 @@ struct MorelWidget : ModuleWidget {
 		menu->addChild(createIndexSubmenuItem("Recording mode", {"MAN", "CLK", "LVL", "RETRO"},
 			[=]() { return (size_t) std::lround(module->params[Morel::MODE_PARAM].getValue()); },
 			[=](size_t i) { module->params[Morel::MODE_PARAM].setValue((float) i); }));
+		menu->addChild(createIndexSubmenuItem("RUN input", {"Trigger (toggles)", "Gate (high = run)"},
+			[=]() { return (size_t) (module->runInputGate ? 1 : 0); },
+			[=](size_t i) { module->runInputGate = (i == 1); }));
 		menu->addChild(createIndexSubmenuItem("Bars (CLK, RETRO)", {"1", "2", "4", "8"},
 			[=]() {
 				for (size_t i = 0; i < 4; i++)

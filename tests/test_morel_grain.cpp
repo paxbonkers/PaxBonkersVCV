@@ -146,7 +146,80 @@ static void testScatterReproducible() {
 	CHECK(diff < 1e-6f, "SCATTER 0: random seed has no influence (diff %.6f)", diff);
 }
 
+// Reverse: grains read backwards, inside the slice, at the same level as forward.
+static void testReverse() {
+	for (float sr : SRS) {
+		std::vector<float> dc((size_t) sr, 1.f);
+		for (int k = 0; k < 4; k++) {
+			bool rev = k & 1;
+			float scatter = (k & 2) ? 0.5f : 0.f;
+			GrainCloud c;
+			c.setSlice(ref(dc, sr), 0.1 * sr, 0.6 * sr);
+			float lo = 1e9f, hi = -1e9f;
+			bool inside = true, backwards = true;
+			for (int i = 0; i < (int) sr; i++) {
+				float l, r;
+				c.process(0.3f, scatter, 1.f, sr, l, r, rev);
+				if (i > sr / 4) {
+					lo = std::fmin(lo, l);
+					hi = std::fmax(hi, l);
+				}
+				for (int g = 0; g < GRAIN_VOICES; g++) {
+					if (!c.grains[g].active)
+						continue;
+					if (c.grains[g].pos < 0.1 * sr - 1.0 || c.grains[g].pos > 0.6 * sr + 1.0)
+						inside = false;
+					if (rev && c.grains[g].rate > 0.0)
+						backwards = false;
+				}
+				CHECK(std::isfinite(l), "finite output");
+			}
+			CHECK(inside, "sr %.0f rev %d: grains stay inside the slice", sr, rev);
+			if (rev)
+				CHECK(backwards, "sr %.0f: reverse grains read backwards", sr);
+			if (scatter == 0.f)
+				CHECK(lo > 0.93f && hi < 1.07f, "sr %.0f rev %d: constant level (%.3f..%.3f)", sr, rev, lo, hi);
+		}
+	}
+	// Ramp: a reverse grain's samples fall.
+	float sr = 48000.f;
+	std::vector<float> ramp(48000);
+	for (size_t i = 0; i < ramp.size(); i++)
+		ramp[i] = (float) i / ramp.size();
+	GrainCloud c;
+	c.setSlice(ref(ramp, sr), 0.0, 48000.0);
+	float l, r;
+	c.process(0.2f, 0.f, 1.f, sr, l, r, true);
+	double p0 = c.grains[0].pos;
+	for (int i = 0; i < 50; i++)
+		c.process(0.2f, 0.f, 1.f, sr, l, r, true);
+	CHECK(c.grains[0].active && c.grains[0].pos < p0, "reverse grain position falls (%.1f -> %.1f)", p0, c.grains[0].pos);
+
+	// Reverse read head: starts at the slice end, moves backwards, wraps with EOS; the playhead falls.
+	for (float rs : SRS) {
+		std::vector<float> dc((size_t) rs, 1.f);
+		GrainCloud g;
+		g.setSlice(ref(dc, rs), 0.2 * rs, 0.4 * rs, true);
+		CHECK(g.playhead() > 0.39f && g.playhead() <= 0.4f, "sr %.0f: reverse head starts at the slice end (%.4f)", rs, g.playhead());
+		float l, r, prev = g.playhead();
+		int eos = 0, rising = 0;
+		int n = (int) (0.2 * rs / GRAIN_SCAN_RATE * 1.5);   // 1.5 passes through the slice
+		for (int i = 0; i < n; i++) {
+			if (g.process(0.3f, 0.f, 1.f, rs, l, r, true))
+				eos++;
+			float ph = g.playhead();
+			if (ph > prev + 1e-6f && ph < 0.39f)
+				rising++;
+			CHECK(ph >= 0.2f - 1e-6f && ph <= 0.4f + 1e-6f, "sr %.0f: head inside the slice (%.4f)", rs, ph);
+			prev = ph;
+		}
+		CHECK(eos == 1, "sr %.0f: one EOS per reverse pass, got %d", rs, eos);
+		CHECK(rising == 0, "sr %.0f: reverse head only falls (except at the wrap), %d rising", rs, rising);
+	}
+}
+
 int main() {
+	testReverse();
 	testGrainSize();
 	testConstantLevel();
 	testEosAndScan();

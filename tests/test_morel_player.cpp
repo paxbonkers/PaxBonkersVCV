@@ -120,7 +120,44 @@ static void testEdgeCases() {
 	CHECK(std::isfinite(l), "NaN speed is safe");
 }
 
+// Reverse: same part, same duration, played from its end to its start, one EOS, no jumps.
+static void testReverse() {
+	for (float sr : SRS) {
+		std::vector<float> dc((size_t) sr, 1.f);
+		CutPlayer p;
+		float last = 0.f;
+		p.trigger(ref(dc, sr), 0.2 * sr, 0.3 * sr, 0.f, 1.f, sr, true);
+		Run r = play(p, (int) (0.3f * sr), 1.f, sr, last);
+		float dur = r.sounding / sr;
+		CHECK(std::fabs(dur - 0.1f) < 0.002f, "sr %.0f: reverse plays 0.1 s, got %.4f", sr, dur);
+		CHECK(r.eos == 1, "sr %.0f: reverse gives one EOS, got %d", sr, r.eos);
+		float maxStep = 1.f / (FADE_IN_SEC * sr) + 1e-3f;
+		CHECK(r.maxJump <= maxStep, "sr %.0f: reverse has no jumps (max %.4f)", sr, r.maxJump);
+	}
+	// Ramp: the output must fall while the voice plays backwards.
+	float sr = 48000.f;
+	std::vector<float> ramp(48000);
+	for (size_t i = 0; i < ramp.size(); i++)
+		ramp[i] = (float) i / ramp.size();
+	CutPlayer p;
+	p.trigger(ref(ramp, sr), 10000.0, 20000.0, 0.f, 1.f, sr, true);
+	float l, r, prev = 2.f;
+	int rising = 0;
+	for (int i = 0; i < 9000; i++) {
+		p.process(1.f, sr, l, r);
+		if (i > 100 && l > prev + 1e-6f)
+			rising++;
+		if (i == 101)
+			CHECK(std::fabs(l - 19899.f / 48000.f) < 1e-3f, "reverse starts at the end of the part (%.5f)", l);
+		prev = l;
+	}
+	CHECK(rising == 0, "reverse output falls on a ramp (%d rising samples)", rising);
+	float ph = p.playhead();
+	CHECK(ph > 10000.f / 48000.f && ph < 11500.f / 48000.f, "playhead moves backwards (%.4f)", ph);
+}
+
 int main() {
+	testReverse();
 	testSpanAndFades();
 	testCrossfade();
 	testSpeedAndRate();

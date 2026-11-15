@@ -38,8 +38,8 @@ Morel is a slice sampler in the wider family of the Make Noise Morphagene, with 
 | Control / port | Range | Function |
 |---|---|---|
 | TEMPO | 40–800 steps/min, default 480 (120 BPM in sixteenths). With CLOCK patched: /4, /2, ×1, ×2, ×4 | Internal clock, or divider/multiplier of the external clock |
-| RUN button / input | on/off, a trigger toggles | Starts and stops the sequencer |
-| ADV | button | One step forward, also while stopped |
+| RUN button / input | on/off | Starts and stops the sequencer. The input toggles RUN with every trigger (default) or follows a gate, see below |
+| ADV button / input | button, trigger | One step forward, also while stopped |
 | TRIG button / input | button, trigger | Plays the current step again without advancing |
 | CLOCK | trigger | Replaces the internal clock. Pulses count only while RUN is on |
 | RESET | trigger | The next step is the first step of the cycle. The clock phase and divider start again |
@@ -99,14 +99,17 @@ The new recording takes over at the next EOC or RESET, or at once when the seque
 
 | Control / port | Range | Function |
 |---|---|---|
-| SPEED + V/OCT | −2 … +2 octaves, V/OCT 1 V/oct | Pitch and speed together, like tape. Knob plus CV is limited to ±5 octaves. No reverse playback |
+| SPEED + V/OCT | −2 … +2 octaves, V/OCT 1 V/oct | Pitch and speed together, like tape. Knob plus CV is limited to ±5 octaves. For reverse playback use REV |
 | SPAN + input | 1–100 %, default 100 %, 1 V = 10 % | CUT: how much of the slice is played. GRAIN: grain size |
 | SCATTER + input | 0–100 %, default 0 %, 1 V = 10 % | Random variation, see below |
 | GRAIN | CUT / GRAIN | Light on = GRAIN |
+| REV | forward / reverse | Light on = slices play backwards. Takes effect with the next step (CUT) or the next grain (GRAIN) |
 
 In CUT mode every step starts its slice and plays the first SPAN × slice length, followed by silence until the next step. If a step arrives while the previous slice is still sounding, Morel crossfades in 3 ms. SCATTER moves the start up to 20 ms later, changes the pitch by up to ±1 semitone and lowers the level by up to 6 dB, chosen anew on every step.
 
 In GRAIN mode four overlapping grains play from the current slice. SPAN sets the grain size from 10 ms to the whole slice. A read head moves slowly through the slice and wraps at its end. SCATTER shifts each grain's position by up to half the slice length and its pitch by up to ±7 semitones. On a new step, new grains start in the new slice while the old ones fade out. The texture keeps sounding while the sequencer is stopped.
+
+With REV on, CUT plays the same part of the slice backwards, from the SPAN cut down to the slice start, so the attack of a hit comes at the end. In GRAIN mode the read head moves backwards through the slice, from its end to its start, and each new grain reads its section backwards. EOS fires when the read head wraps from the start back to the end. SCATTER's start offset moves the reverse start point towards the slice start.
 
 Switching from CUT to GRAIN continues the last slice as a texture at once. Switching back stops new grains; CUT plays from the next step.
 
@@ -129,6 +132,10 @@ The middle shows the waveform with numbered slice markers, the current slice, th
 
 The bottom line shows the step, the slice, the recording time and the tempo or clock factor.
 
+### RUN input
+
+The context menu entry RUN input sets how the RUN jack reacts. Trigger (toggles) switches RUN on or off with every pulse and suits clocks that send a pulse at start and at stop. Gate (high = run) follows the level and suits clocks whose run output stays high while they run. The RUN button works in both modes. The setting is saved with the patch.
+
 ### Files and patches
 
 Load WAV… in the context menu loads a WAV file instead of a recording. The file name appears in the display, and the file is sliced and switched in like a recording. Files are not loaded while Morel is recording or armed.
@@ -148,12 +155,12 @@ The playing material is saved with the patch as `recording.wav` in the module's 
 | Maximum recording | 60 s up to 48 kHz; shorter at higher sample rates (30 s at 96 kHz, 15 s at 192 kHz). Recordings shorter than 50 ms are discarded |
 | Slicing | Envelope follower on L + R (attack 1 ms, release 30 ms), 6 dB hysteresis, minimum slice length 40 ms, markers moved up to 5 ms back to the nearest zero crossing, slice 1 always at the start, up to 32 slices. Runs in a background thread |
 | Interpolation | 4-point Hermite |
-| CUT | Fade in 0.5 ms, fade out 3 ms, 3 ms crossfade between steps |
-| GRAIN | 4 voices, Hann window, a new grain every half grain length (2× overlap), read head at 25 % of the playback speed. Grain size exponential over SPAN: 1 % = 10 ms, 100 % = whole slice |
+| CUT | Fade in 0.5 ms, fade out 3 ms, 3 ms crossfade between steps. Same fades in reverse |
+| GRAIN | 4 voices, Hann window, a new grain every half grain length (2× overlap), read head at 25 % of the playback speed (backwards with REV). Grain size exponential over SPAN: 1 % = 10 ms, 100 % = whole slice |
 | Sample rate | Recordings and files keep their own sample rate and play at the right pitch at any engine rate. Changing the engine rate keeps the material |
 | WAV files | Read: PCM 8, 16, 24 and 32 bit, float 32 and 64 bit, WAVE_FORMAT_EXTENSIBLE, any sample rate, mono (on both sides) or two and more channels (the first two are used). Full scale = 5 V. Longer files are cut at 2 880 000 frames |
 | Saved file | `recording.wav`, 32-bit float stereo, own sample rate, 5 V = 1.0. Removed when Morel is empty at save time |
-| Patch data | Bars, recording counter and source name. Missing or invalid values fall back to 2 bars, counter 0, no name |
+| Patch data | Bars, RUN input mode, recording counter and source name. Missing or invalid values fall back to 2 bars, trigger mode, counter 0, no name |
 | Not saved | Sequencer position and divider count (Morel starts at the first step after loading), the RETRO ring buffer, a finished recording that is still waiting for EOC |
 | Real-time safety | Slicing, file reading and writing and the RETRO copy run outside the audio thread. The audio thread does no memory allocation or file I/O |
 | Initialize | All parameters to default, 2 bars, sequencer to the first step, recording cleared, counter to 0 |

@@ -104,6 +104,8 @@ struct Zenon : Module {
 	dsp::PulseGenerator eocPulse[zenon::NUM_TRACKS];
 	dsp::PulseGenerator rndLightPulse[zenon::NUM_TRACKS];
 	dsp::ClockDivider lightDivider;
+	bool runInputGate = false;   // context menu "RUN input", saved in the patch JSON
+	bool runInWasHigh = false;
 
 	Zenon() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -164,7 +166,7 @@ struct Zenon : Module {
 		configParam(FILTER_AMT_PARAM, -1.f, 1.f, 0.4f, "Filter envelope amount", "%", 0.f, 100.f);
 
 		configInput(TEMPO_CV_INPUT, "Tempo CV (1 V = double tempo; with external clock 1 V = next factor)");
-		configInput(RUN_INPUT, "Run toggle trigger");
+		configInput(RUN_INPUT, "Run (trigger toggles or gate, see context menu)");
 		configInput(CLOCK_INPUT, "Clock (replaces the internal clock)");
 		configInput(TRIG_INPUT, "Trigger (replay current step)");
 		configInput(RESET_INPUT, "Reset");
@@ -193,6 +195,19 @@ struct Zenon : Module {
 			tracks[t].reset();
 		transport = zenon::Transport();
 		voice.reset();
+		runInputGate = false;
+	}
+
+	json_t* dataToJson() override {
+		json_t* root = json_object();
+		json_object_set_new(root, "runInputGate", json_boolean(runInputGate));
+		return root;
+	}
+
+	// Missing or invalid: trigger mode (behaviour of Zenon up to 2.2.1).
+	void dataFromJson(json_t* root) override {
+		json_t* j = json_object_get(root, "runInputGate");
+		runInputGate = j && json_is_boolean(j) && json_is_true(j);
 	}
 
 	float in(int id) {
@@ -213,8 +228,20 @@ struct Zenon : Module {
 		const float dt = args.sampleTime;
 
 		// --- Transport
-		if (runInTrigger.process(inputs[RUN_INPUT].getVoltage(), 0.1f, 1.f))
+		// RUN input: trigger mode toggles on every rising edge; gate mode follows the level
+		// (rising edge = run, falling edge = stop). The RUN button works in both modes.
+		bool runRise = runInTrigger.process(inputs[RUN_INPUT].getVoltage(), 0.1f, 1.f);
+		bool runFall = runInWasHigh && !runInTrigger.isHigh();
+		runInWasHigh = runInTrigger.isHigh();
+		if (runInputGate) {
+			if (runRise)
+				params[RUN_PARAM].setValue(1.f);
+			if (runFall)
+				params[RUN_PARAM].setValue(0.f);
+		}
+		else if (runRise) {
 			params[RUN_PARAM].setValue(params[RUN_PARAM].getValue() > 0.5f ? 0.f : 1.f);
+		}
 		bool running = params[RUN_PARAM].getValue() > 0.5f;
 		transport.setRunning(running);
 
@@ -511,6 +538,16 @@ struct ZenonWidget : ModuleWidget {
 		for (int i = 0; i < 8; i++)
 			addOutput(createOutputCentered<PJ301MPort>(Vec(26 + i * 40, 334), module, outIds[i]));
 		addOutput(createOutputCentered<PJ301MPort>(Vec(500, 335), module, Zenon::AUDIO_OUTPUT));
+	}
+
+	void appendContextMenu(Menu* menu) override {
+		Zenon* module = dynamic_cast<Zenon*>(this->module);
+		if (!module)
+			return;
+		menu->addChild(new MenuSeparator);
+		menu->addChild(createIndexSubmenuItem("RUN input", {"Trigger (toggles)", "Gate (high = run)"},
+			[=]() { return (size_t) (module->runInputGate ? 1 : 0); },
+			[=](size_t i) { module->runInputGate = (i == 1); }));
 	}
 };
 
