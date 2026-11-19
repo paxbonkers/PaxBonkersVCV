@@ -6,10 +6,21 @@ Each module has its own manual in [`docs/`](docs/) with the concept, the operati
 
 | Module | Description | Size | Manual |
 |---|---|---|---|
+| [Parzen FX](#parzen-fx) | Drive, distortion and bit crusher in one module, in series or switched lane by lane with a trigger, with a scope in the cable colours. | 16 HP | [docs/ParzenFX.md](docs/ParzenFX.md) |
 | [Morel](#morel) | Records a moment, slices it by level and plays the slices from an 8-step sequencer, as hits or as grains. | 24 HP | [docs/Morel.md](docs/Morel.md) |
 | [Zenon](#zenon) | Polymetric percussion: two 8-step tracks with their own length and destination drive a two-oscillator percussion voice. | 36 HP | [docs/Zenon.md](docs/Zenon.md) |
 | [Lillebror](#lillebror) | Three drum voices (kick, snare, hi-hat) with wave morph and accent-shaped timbre. The little brother of Grids. | 16 HP | [docs/Lillebror.md](docs/Lillebror.md) |
 | [Escarpo](#escarpo) | Clock swing, drift and burst. Delays and ratchets clock pulses by a CV-modulated fraction of the period. | 8 HP | [docs/Escarpo.md](docs/Escarpo.md) |
+
+## Parzen FX
+
+<p align="center">
+  <img src="docs/images/ParzenFX-panel.png" alt="Parzen FX module panel" width="290">
+</p>
+
+Three effects that look like three old outboard devices in one rack: DRIVE (soft saturation), DIST (hard clipping to wavefolding) and CRUSH (bit and sample-rate reduction). In SIM mode they run in series; in SEQ mode one lane is active at a time and every trigger hands the signal on to the next one, with click-free crossfades. A scope window draws both outputs in the colours of their cables. Named after the Parcae, who spin, measure and cut the thread of life.
+
+[Read the Parzen FX manual](docs/ParzenFX.md)
 
 ## Morel
 
@@ -75,6 +86,7 @@ c++ -std=c++11 -O2 -Isrc tests/test_zenon_sequencer.cpp -o build/test_zenon_sequ
 c++ -std=c++11 -O2 -Isrc tests/test_zenon_voice.cpp -o build/test_zenon_voice && ./build/test_zenon_voice
 for t in sequencer slicer player grain recorder; do c++ -std=c++11 -O2 -Isrc tests/test_morel_$t.cpp -o build/test_morel_$t && ./build/test_morel_$t; done
 c++ -std=c++11 -O2 -Isrc tests/test_morel_wav.cpp -o build/test_morel_wav && ./build/test_morel_wav build   # needs a writable temp folder
+c++ -std=c++11 -O2 -Isrc tests/test_parzen_dsp.cpp -o build/test_parzen_dsp && ./build/test_parzen_dsp
 ```
 
 ## License
@@ -84,6 +96,8 @@ Source code and panels: © [pax.bonkers](https://www.instagram.com/pax.bonkers/)
 The Lillebror panel lettering uses outlines of the font Asimovian by Carolina Short (© The Asimovian Project Authors, SIL Open Font License 1.1, see [res/Asimovian-OFL.txt](res/Asimovian-OFL.txt)).
 
 The Morel panel lettering uses outlines of the fonts Inter (© The Inter Project Authors, see [res/Inter-OFL.txt](res/Inter-OFL.txt)) and Barlow Condensed (© The Barlow Project Authors, see [res/BarlowCondensed-OFL.txt](res/BarlowCondensed-OFL.txt)), both under the SIL Open Font License 1.1. The Morel display uses the font Share Tech Mono that ships with VCV Rack; it is loaded from the Rack installation.
+
+The Parzen FX panel lettering uses outlines of the font Inter (© The Inter Project Authors, SIL Open Font License 1.1, see [res/Inter-OFL.txt](res/Inter-OFL.txt)). Its knobs and mode switch are drawn by this project (res/ParzenKnob*.svg, res/ParzenToggle_*.svg). The scope text uses the font Share Tech Mono that ships with VCV Rack; it is loaded from the Rack installation.
 
 Knobs, jacks, buttons, screws and lights are drawn by VCV Rack's built-in Component Library (© VCV, CC BY-NC 4.0). Their graphics are loaded from the Rack installation and are not part of this repository.
 

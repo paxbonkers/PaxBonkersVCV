@@ -52,6 +52,17 @@
         "Sampler",
         "Sequencer"
       ]
+    },
+    {
+      "slug": "ParzenFX",
+      "name": "Parzen FX",
+      "description": "Drive, distortion and bit crusher, in series or switched lane by lane with a trigger, with a scope window.",
+      "manualUrl": "https://github.com/paxbonkers/PaxBonkersVCV/blob/main/docs/ParzenFX.md",
+      "tags": [
+        "Distortion",
+        "Effect",
+        "Waveshaper"
+      ]
     }
   ]
 }

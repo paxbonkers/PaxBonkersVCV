@@ -8,3 +8,6 @@ plugin.dll
 
 # macOS
 .DS_Store
+
+# Working files (previews, overlays, handoffs) - not part of the plugin
+/Claude outputs/
